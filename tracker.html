@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Advanced GPS Control Dashboard</title>
+    <link rel="stylesheet" href="node_modules/leaflet/dist/leaflet.css" />
+    <script src="node_modules/leaflet/dist/leaflet.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f9; text-align: center; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        .controls { display: flex; justify-content: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
+        button { padding: 12px 20px; font-size: 15px; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-track { background-color: #007bff; }
+        .btn-sim { background-color: #28a745; }
+        .btn-wipe { background-color: #6c757d; }
+        button:hover { opacity: 0.9; }
+        #status { font-weight: bold; color: #333; margin-bottom: 15px; font-size: 15px; background: #eee; padding: 10px; border-radius: 5px; }
+        #map { height: 500px; width: 100%; border-radius: 6px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Advanced GPS Control Dashboard</h2>
+        
+        <div class="controls">
+            <button id="trackBtn" class="btn-track" onclick="toggleTracking()">Start Live Tracking</button>
+            <button id="simBtn" class="btn-sim" onclick="toggleSimulation()">Start Route Simulation</button>
+            <button class="btn-wipe" onclick="clearLogs()">Wipe History</button>
+        </div>
+        
+        <div id="status">Status: Standby. Ready to receive logs.</div>
+        <div id="map"></div>
+    </div>
+
+    <script>
+        let map, marker;
+        let routeLine = null; 
+        let trackingActive = false;
+        let watchId = null;
+        let simInterval = null;
+
+        // Internal memory storage replacing the database server entirely
+        let localLocationHistory = [];
+
+        const mockRoutePoints = [
+            [-28.73846, 32.05281],
+            [-28.73750, 32.05350],
+            [-28.73680, 32.05490],
+            [-28.73720, 32.05620],
+            [-28.73880, 32.05580],
+            [-28.73950, 32.05410]
+        ];
+        let simIndex = 0;
+
+        window.onload = function() {
+            map = L.map('map').setView([-28.73846, 32.05281], 15);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            routeLine = L.polyline([], { color: 'red', weight: 4, opacity: 0.8 }).addTo(map);
+        };
+
+        // Processes data internally and updates the map instantly
+        function handleNewLocationData(lat, lng, accuracy) {
+            const logEntry = { latitude: lat, longitude: lng };
+            localLocationHistory.push(logEntry);
+
+            // 1. Draw trail path
+            const pathCoordinates = localLocationHistory.map(log => [log.latitude, log.longitude]);
+            routeLine.setLatLngs(pathCoordinates);
+
+            // 2. Update status and drop pin marker
+            document.getElementById('status').innerText = 
+                `Connections Logged: ${localLocationHistory.length} | Current Pos: Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+
+            if (!marker) {
+                marker = L.marker([lat, lng]).addTo(map);
+                map.setView([lat, lng]);
+            } else {
+                marker.setLatLng([lat, lng]);
+            }
+        }
+
+        // --- REAL LIVE HARDWARE TRACKING ---
+        function toggleTracking() {
+            if (!trackingActive) {
+                if (simInterval) toggleSimulation(); // Turn off simulator if active
+
+                watchId = navigator.geolocation.watchPosition((pos) => {
+                    handleNewLocationData(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+                }, (err) => {
+                    document.getElementById('status').innerText = `GPS Error: ${err.message}`;
+                }, { enableHighAccuracy: true });
+
+                document.getElementById('trackBtn').innerText = "Stop Live Tracking";
+                document.getElementById('trackBtn').style.backgroundColor = "#dc3545";
+                trackingActive = true;
+            } else {
+                navigator.geolocation.clearWatch(watchId);
+                document.getElementById('trackBtn').innerText = "Start Live Tracking";
+                document.getElementById('trackBtn').style.backgroundColor = "#007bff";
+                trackingActive = false;
+            }
+        }
+
+        // --- 🏃 MOVEMENT TRAIL SIMULATOR ---
+        function toggleSimulation() {
+            if (!simInterval) {
+                if (trackingActive) toggleTracking(); // Turn off real GPS if active
+
+                document.getElementById('simBtn').innerText = "Stop Simulation";
+                document.getElementById('simBtn').style.backgroundColor = "#dc3545";
+                
+                simInterval = setInterval(() => {
+                    const point = mockRoutePoints[simIndex];
+                    handleNewLocationData(point[0], point[1], 5.0);
+                    simIndex = (simIndex + 1) % mockRoutePoints.length; 
+                }, 2000); 
+            } else {
+                clearInterval(simInterval);
+                simInterval = null;
+                document.getElementById('simBtn').innerText = "Start Route Simulation";
+                document.getElementById('simBtn').style.backgroundColor = "#28a745";
+            }
+        }
+
+        // --- 🗑️ WIPE LOCAL HISTORY ---
+        function clearLogs() {
+            localLocationHistory = [];
+            if(marker) { map.removeLayer(marker); marker = null; }
+            routeLine.setLatLngs([]);
+            document.getElementById('status').innerText = "Status: History cleared. Standby.";
+        }
+    </script>
+</body>
+</html>
